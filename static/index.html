@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Git-Backed Chat</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Git-Backed Chat</h1>
+            <div class="repository-controls">
+                <button id="addRepoBtn">Add Repository</button>
+                <button id="syncBtn">Sync to GitHub</button>
+            </div>
+        </header>
+
+        <main>
+            <div class="messages" id="messages"></div>
+            
+            <div class="input-area">
+                <textarea id="messageInput" placeholder="Type your message..."></textarea>
+                <button id="sendBtn">Send</button>
+            </div>
+        </main>
+
+        <!-- Add Repository Modal -->
+        <div class="modal" id="repoModal">
+            <div class="modal-content">
+                <h2>Add Repository</h2>
+                <form id="repoForm">
+                    <div class="form-group">
+                        <label for="ownerInput">Owner:</label>
+                        <input type="text" id="ownerInput" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="nameInput">Repository Name:</label>
+                        <input type="text" id="nameInput" required>
+                    </div>
+                    <div class="form-buttons">
+                        <button type="submit">Add</button>
+                        <button type="button" id="cancelRepoBtn">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
