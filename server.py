@@ -14,15 +14,30 @@ from github_manager import GitHubManager
 # Load environment variables
 load_dotenv()
 
+# Check required environment variables
+required_vars = ['GITHUB_TOKEN', 'GITHUB_USERNAME']
+missing_vars = [var for var in required_vars if not os.getenv(var)]
+if missing_vars:
+    print(f"Error: Missing required environment variables: {', '.join(missing_vars)}")
+    print("Please make sure your .env file contains:")
+    print("GITHUB_TOKEN=your_github_token")
+    print("GITHUB_USERNAME=your_github_username")
+    exit(1)
+
 class ChatServer(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
-        self.db = Database()
-        self.github_api = GitHubAPI(
-            token=os.getenv('GITHUB_TOKEN'),
-            username=os.getenv('GITHUB_USERNAME')
-        )
-        self.github_manager = GitHubManager(self.github_api, self.db)
-        super().__init__(*args, **kwargs)
+        try:
+            self.db = Database()
+            self.github_api = GitHubAPI(
+                token=os.getenv('GITHUB_TOKEN'),
+                username=os.getenv('GITHUB_USERNAME')
+            )
+            self.github_manager = GitHubManager(self.github_api, self.db)
+            super().__init__(*args, **kwargs)
+        except Exception as e:
+            print(f"Error initializing server: {str(e)}")
+            print(traceback.format_exc())
+            raise
 
     def _send_cors_headers(self):
         """Send CORS headers."""
