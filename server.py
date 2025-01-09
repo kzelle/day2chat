@@ -4,12 +4,11 @@ import asyncio
 import traceback
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 import html
-from database.db import Database
+from datetime import datetime
 from github_api import GitHubAPI
-from github_manager import GitHubManager
 
 # Load environment variables
 load_dotenv()
@@ -27,12 +26,10 @@ if missing_vars:
 class ChatServer(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         try:
-            self.db = Database()
             self.github_api = GitHubAPI(
                 token=os.getenv('GITHUB_TOKEN'),
                 username=os.getenv('GITHUB_USERNAME')
             )
-            self.github_manager = GitHubManager(self.github_api, self.db)
             super().__init__(*args, **kwargs)
         except Exception as e:
             print(f"Error initializing server: {str(e)}")
@@ -59,6 +56,65 @@ class ChatServer(SimpleHTTPRequestHandler):
         body = self.rfile.read(content_length)
         return json.loads(body.decode())
 
+    def _store_message(self, content: str) -> Dict:
+        """Store a message as a text file in the repository."""
+        try:
+            timestamp = datetime.now().isoformat()
+            message = {
+                'content': content,
+                'timestamp': timestamp
+            }
+            
+            # Create messages directory if it doesn't exist
+            messages_dir = 'messages'
+            if not os.path.exists(messages_dir):
+                os.makedirs(messages_dir)
+            
+            # Create a unique filename based on timestamp
+            filename = f"{timestamp.replace(':', '-')}.txt"
+            filepath = os.path.join(messages_dir, filename)
+            
+            # Write message to local file
+            with open(filepath, 'w') as f:
+                f.write(f"Content: {content}\nTimestamp: {timestamp}\n")
+            
+            # Commit and push to GitHub
+            self.github_api.create_or_update_file(
+                owner=os.getenv('GITHUB_USERNAME'),
+                repo=os.getenv('GITHUB_REPO_NAME', 'day2chat'),
+                path=f"messages/{filename}",
+                content=f"Content: {content}\nTimestamp: {timestamp}\n",
+                message=f"Add message from {timestamp}"
+            )
+            
+            return message
+        except Exception as e:
+            print(f"Error storing message: {str(e)}")
+            print(traceback.format_exc())
+            raise
+
+    def _get_messages(self) -> List[Dict]:
+        """Get all messages from the messages directory."""
+        messages = []
+        messages_dir = 'messages'
+        
+        if os.path.exists(messages_dir):
+            for filename in sorted(os.listdir(messages_dir)):
+                if filename.endswith('.txt'):
+                    filepath = os.path.join(messages_dir, filename)
+                    with open(filepath, 'r') as f:
+                        content = f.read()
+                        # Parse the content
+                        lines = content.strip().split('\n')
+                        message_content = lines[0].replace('Content: ', '', 1)
+                        timestamp = lines[1].replace('Timestamp: ', '', 1)
+                        messages.append({
+                            'content': message_content,
+                            'timestamp': timestamp
+                        })
+        
+        return messages
+
     def do_OPTIONS(self):
         """Handle OPTIONS requests for CORS."""
         self.send_response(200)
@@ -70,40 +126,45 @@ class ChatServer(SimpleHTTPRequestHandler):
         parsed_path = urlparse(self.path)
         
         if parsed_path.path == '/messages':
-            messages = self.db.get_messages()
-            self._send_json_response(messages)
-            
-        elif parsed_path.path == '/repositories':
-            repositories = self.github_manager.get_repositories()
-            self._send_json_response(repositories)
-            
+            try:
+                messages = self._get_messages()
+                self._send_json_response(messages)
+            except Exception as e:
+                print(f"Error getting messages: {str(e)}")
+                self._send_json_response({'error': str(e)}, 500)
+        
         elif parsed_path.path.startswith('/static/'):
             # Serve static files
             try:
-                with open('.' + parsed_path.path, 'rb') as f:
+                file_path = '.' + parsed_path.path
+                with open(file_path, 'rb') as f:
                     self.send_response(200)
-                    if parsed_path.path.endswith('.css'):
+                    if file_path.endswith('.css'):
                         self.send_header('Content-Type', 'text/css')
-                    elif parsed_path.path.endswith('.js'):
+                    elif file_path.endswith('.js'):
                         self.send_header('Content-Type', 'application/javascript')
+                    elif file_path.endswith('.html'):
+                        self.send_header('Content-Type', 'text/html')
+                    self._send_cors_headers()
                     self.end_headers()
                     self.wfile.write(f.read())
             except FileNotFoundError:
                 self._send_json_response({'error': 'File not found'}, 404)
         
+        elif parsed_path.path == '/':
+            # Serve index.html for root path
+            try:
+                with open('./static/index.html', 'rb') as f:
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/html')
+                    self._send_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(f.read())
+            except FileNotFoundError:
+                self._send_json_response({'error': 'index.html not found'}, 404)
+        
         else:
-            # Serve index.html for the root path
-            if parsed_path.path == '/':
-                try:
-                    with open('./static/index.html', 'rb') as f:
-                        self.send_response(200)
-                        self.send_header('Content-Type', 'text/html')
-                        self.end_headers()
-                        self.wfile.write(f.read())
-                except FileNotFoundError:
-                    self._send_json_response({'error': 'File not found'}, 404)
-            else:
-                self._send_json_response({'error': 'Not found'}, 404)
+            self._send_json_response({'error': 'Not found'}, 404)
 
     def do_POST(self):
         """Handle POST requests."""
@@ -117,41 +178,9 @@ class ChatServer(SimpleHTTPRequestHandler):
                     self._send_json_response({'error': 'Content is required'}, 400)
                     return
                 
-                # Add message to database
-                message = self.db.add_message(content)
-                
-                # Sync with GitHub if repository is set
-                if message.get('repository_id'):
-                    git_hash = self.github_manager.sync_message(message)
-                    if git_hash:
-                        self.db.update_message_git_hash(message['id'], git_hash)
-                
+                # Store the message
+                message = self._store_message(content)
                 self._send_json_response(message)
-                
-            elif self.path == '/repositories':
-                owner = data.get('owner', '').strip()
-                name = data.get('name', '').strip()
-                
-                if not owner or not name:
-                    self._send_json_response({'error': 'Owner and name are required'}, 400)
-                    return
-                
-                try:
-                    print(f"Adding repository: {owner}/{name}")  
-                    repository = self.github_manager.add_repository(owner, name)
-                    self._send_json_response(repository)
-                except Exception as e:
-                    print(f"Repository error: {str(e)}")
-                    print("Traceback:", traceback.format_exc())  
-                    self._send_json_response({'error': f'Failed to add repository: {str(e)}'}, 500)
-                
-            elif self.path == '/push':
-                success = self.github_manager.sync_all_messages()
-                self._send_json_response({
-                    'success': success,
-                    'message': 'Messages synced successfully' if success else 'Sync failed'
-                })
-                
             else:
                 self._send_json_response({'error': 'Not found'}, 404)
                 
@@ -159,7 +188,7 @@ class ChatServer(SimpleHTTPRequestHandler):
             self._send_json_response({'error': 'Invalid JSON'}, 400)
         except Exception as e:
             print(f"Server error: {str(e)}")
-            print("Traceback:", traceback.format_exc())  
+            print(traceback.format_exc())
             self._send_json_response({'error': str(e)}, 500)
 
 def run_server(host: str = 'localhost', port: int = 8004):

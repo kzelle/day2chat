@@ -2,6 +2,7 @@ import os
 import requests
 from typing import Dict, Optional, List
 import json
+import base64
 
 class GitHubAPI:
     def __init__(self, token: str, username: str):
@@ -60,7 +61,6 @@ class GitHubAPI:
         """Create a new file in the repository."""
         url = f"{self.base_url}/repos/{owner}/{repo}/contents/{path}"
         
-        import base64
         content_bytes = content.encode('utf-8')
         content_base64 = base64.b64encode(content_bytes).decode('utf-8')
         
@@ -77,7 +77,6 @@ class GitHubAPI:
         """Update an existing file in the repository."""
         url = f"{self.base_url}/repos/{owner}/{repo}/contents/{path}"
         
-        import base64
         content_bytes = content.encode('utf-8')
         content_base64 = base64.b64encode(content_bytes).decode('utf-8')
         
@@ -104,9 +103,28 @@ class GitHubAPI:
 
     def create_or_update_file(self, owner: str, repo: str, path: str, content: str, message: str) -> Dict:
         """Create or update a file in the repository."""
-        existing_file = self.get_file(owner, repo, path)
+        url = f"{self.base_url}/repos/{owner}/{repo}/contents/{path}"
         
-        if existing_file:
-            return self.update_file(owner, repo, path, content, message, existing_file['sha'])
-        else:
-            return self.create_file(owner, repo, path, content, message)
+        try:
+            # First try to get the file to see if it exists
+            response = requests.get(url, headers=self.headers)
+            
+            # Prepare the request data
+            data = {
+                "message": message,
+                "content": base64.b64encode(content.encode()).decode(),
+                "branch": "main"
+            }
+            
+            # If file exists, include its SHA
+            if response.status_code == 200:
+                data["sha"] = response.json()["sha"]
+            
+            # Create or update the file
+            response = requests.put(url, headers=self.headers, json=data)
+            response.raise_for_status()
+            return response.json()
+            
+        except requests.exceptions.RequestException as e:
+            print(f"GitHub API error: {str(e)}")
+            raise
