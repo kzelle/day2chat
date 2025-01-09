@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import traceback
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 from typing import Dict, Any, Optional
@@ -120,8 +121,14 @@ class ChatServer(SimpleHTTPRequestHandler):
                     self._send_json_response({'error': 'Owner and name are required'}, 400)
                     return
                 
-                repository = self.github_manager.add_repository(owner, name)
-                self._send_json_response(repository)
+                try:
+                    print(f"Adding repository: {owner}/{name}")  
+                    repository = self.github_manager.add_repository(owner, name)
+                    self._send_json_response(repository)
+                except Exception as e:
+                    print(f"Repository error: {str(e)}")
+                    print("Traceback:", traceback.format_exc())  
+                    self._send_json_response({'error': f'Failed to add repository: {str(e)}'}, 500)
                 
             elif self.path == '/push':
                 success = self.github_manager.sync_all_messages()
@@ -136,6 +143,8 @@ class ChatServer(SimpleHTTPRequestHandler):
         except json.JSONDecodeError:
             self._send_json_response({'error': 'Invalid JSON'}, 400)
         except Exception as e:
+            print(f"Server error: {str(e)}")
+            print("Traceback:", traceback.format_exc())  
             self._send_json_response({'error': str(e)}, 500)
 
 def run_server(host: str = 'localhost', port: int = 8004):

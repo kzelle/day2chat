@@ -5,13 +5,28 @@ import json
 
 class GitHubAPI:
     def __init__(self, token: str, username: str):
+        if not token or not username:
+            raise ValueError("GitHub token and username are required")
+            
         self.token = token
         self.username = username
         self.base_url = "https://api.github.com"
         self.headers = {
-            "Authorization": f"token {token}",
-            "Accept": "application/vnd.github.v3+json"
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "X-GitHub-Api-Version": "2022-11-28"
         }
+        
+        # Verify credentials
+        try:
+            response = requests.get(f"{self.base_url}/user", headers=self.headers)
+            response.raise_for_status()
+            print("GitHub authentication successful")
+        except Exception as e:
+            print(f"GitHub authentication failed: {str(e)}")
+            if response.status_code == 401:
+                raise ValueError("Invalid GitHub token")
+            raise
 
     def create_repository(self, name: str, private: bool = False) -> Dict:
         """Create a new GitHub repository."""
@@ -31,11 +46,15 @@ class GitHubAPI:
         url = f"{self.base_url}/repos/{owner}/{name}"
         
         try:
+            print(f"Fetching repository: {url}")  # Debug log
             response = requests.get(url, headers=self.headers)
+            print(f"Response status: {response.status_code}")  # Debug log
+            print(f"Response body: {response.text}")  # Debug log
             response.raise_for_status()
             return response.json()
-        except requests.exceptions.RequestException:
-            return None
+        except requests.exceptions.RequestException as e:
+            print(f"GitHub API error: {str(e)}")  # Debug log
+            raise ValueError(f"Failed to get repository: {str(e)}")
 
     def create_file(self, owner: str, repo: str, path: str, content: str, message: str) -> Dict:
         """Create a new file in the repository."""

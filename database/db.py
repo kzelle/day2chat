@@ -6,7 +6,8 @@ import os
 
 class Database:
     def __init__(self, db_path: str = "messages.db"):
-        self.db_path = db_path
+        # Make sure we store the database in the database directory
+        self.db_path = os.path.join(os.path.dirname(__file__), db_path)
         self._init_db()
 
     def _init_db(self):

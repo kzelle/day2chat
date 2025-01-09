@@ -46,13 +46,20 @@ class GitHubManager:
 
     def add_repository(self, owner: str, name: str) -> Dict:
         """Add a new repository for tracking."""
-        # Check if the repository exists on GitHub
-        repo = self.github_api.get_repository(owner, name)
-        if not repo:
-            raise ValueError(f"Repository {owner}/{name} not found on GitHub")
-        
-        # Add the repository to the database
-        return self.database.add_repository(owner, name)
+        try:
+            # Check if the repository exists on GitHub
+            repo = self.github_api.get_repository(owner, name)
+            if not repo:
+                print(f"Repository {owner}/{name} not found on GitHub")
+                raise ValueError(f"Repository {owner}/{name} not found on GitHub")
+            
+            # Add the repository to the database
+            return self.database.add_repository(owner, name)
+        except Exception as e:
+            print(f"Error in add_repository: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            raise
 
     def get_repositories(self) -> List[Dict]:
         """Get all tracked repositories."""
